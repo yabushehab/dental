@@ -31,10 +31,17 @@ model Organization {
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
-  clinics     Clinic[]
-  memberships Membership[]
-  providers   Provider[]
-  auditEvents AuditEvent[]
+  clinics          Clinic[]
+  memberships      Membership[]
+  providers        Provider[]
+  auditEvents      AuditEvent[]
+  patients         Patient[]
+  medicalHistories MedicalHistory[]
+  documents        Document[]
+  chairs           Chair[]
+  appointmentTypes AppointmentType[]
+  appointments     Appointment[]
+  counters         Counter[]
 
   @@map("organizations")
 }
@@ -52,7 +59,9 @@ model Clinic {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  chairs       Chair[]
+  appointments Appointment[]
 
   @@index([organizationId])
   @@map("clinics")
@@ -113,11 +122,175 @@ model Provider {
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
-  membership   Membership   @relation(fields: [membershipId], references: [id])
-  organization Organization @relation(fields: [organizationId], references: [id])
+  membership   Membership    @relation(fields: [membershipId], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  appointments Appointment[]
 
   @@index([organizationId])
   @@map("providers")
+}
+
+// ---------------------------------------------------------------------------
+// Patients
+// ---------------------------------------------------------------------------
+
+model Patient {
+  id               String    @id @default(cuid())
+  organizationId   String
+  /// per-organization human-readable file number (see Counter)
+  fileNumber       Int
+  firstName        String
+  lastName         String
+  dob              DateTime? @db.Date
+  sex              Sex?
+  /// Bahrain CPR / national ID
+  cpr              String?
+  phone            String?
+  email            String?
+  address          String?
+  emergencyContact Json?
+  referralSource   String?
+  primaryClinicId  String?
+  whatsappOptIn    Boolean   @default(true)
+  notes            String?
+  tags             String[]  @default([])
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  organization     Organization     @relation(fields: [organizationId], references: [id])
+  medicalHistories MedicalHistory[]
+  documents        Document[]
+  appointments     Appointment[]
+
+  @@unique([organizationId, fileNumber])
+  @@index([organizationId, lastName, firstName])
+  @@index([organizationId, phone])
+  @@map("patients")
+}
+
+/// Versioned questionnaire — a new row is written on every update; the
+/// latest row is the current history.
+model MedicalHistory {
+  id                String    @id @default(cuid())
+  organizationId    String
+  patientId         String
+  /// structured questionnaire answers (allergies, conditions, medications…)
+  answers           Json
+  /// derived red-banner alerts, e.g. ["Penicillin allergy", "Diabetes"]
+  alerts            String[]  @default([])
+  completedByUserId String?
+  createdAt         DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  patient      Patient      @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, createdAt])
+  @@map("medical_histories")
+}
+
+model Document {
+  id               String       @id @default(cuid())
+  organizationId   String
+  patientId        String?
+  type             DocumentType @default(OTHER)
+  s3Key            String
+  fileName         String
+  mimeType         String
+  sizeBytes        Int
+  uploadedByUserId String?
+  createdAt        DateTime     @default(now())
+  deletedAt        DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  patient      Patient?     @relation(fields: [patientId], references: [id])
+
+  @@index([organizationId, patientId])
+  @@map("documents")
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling
+// ---------------------------------------------------------------------------
+
+model Chair {
+  id             String   @id @default(cuid())
+  organizationId String
+  clinicId       String
+  name           String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  clinic       Clinic        @relation(fields: [clinicId], references: [id])
+  appointments Appointment[]
+
+  @@index([organizationId, clinicId])
+  @@map("chairs")
+}
+
+model AppointmentType {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  defaultMins    Int      @default(30)
+  color          String   @default("#3b82f6")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  appointments Appointment[]
+
+  @@index([organizationId])
+  @@map("appointment_types")
+}
+
+model Appointment {
+  id                 String            @id @default(cuid())
+  organizationId     String
+  clinicId           String
+  patientId          String
+  providerId         String
+  chairId            String?
+  typeId             String?
+  /// UTC instants; rendered in the clinic's timezone
+  startsAt           DateTime
+  endsAt             DateTime
+  status             AppointmentStatus @default(SCHEDULED)
+  reason             String?
+  cancellationReason String?
+  notes              String?
+  createdByUserId    String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  clinic       Clinic           @relation(fields: [clinicId], references: [id])
+  patient      Patient          @relation(fields: [patientId], references: [id])
+  provider     Provider         @relation(fields: [providerId], references: [id])
+  chair        Chair?           @relation(fields: [chairId], references: [id])
+  type         AppointmentType? @relation(fields: [typeId], references: [id])
+
+  @@index([organizationId, clinicId, startsAt])
+  @@index([organizationId, providerId, startsAt])
+  @@index([patientId, startsAt])
+  @@map("appointments")
+}
+
+/// Per-organization named sequences (patient file numbers, invoice numbers…).
+/// Incremented atomically via upsert.
+model Counter {
+  id             String @id @default(cuid())
+  organizationId String
+  key            String
+  value          Int
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, key])
+  @@map("counters")
 }
 
 // ---------------------------------------------------------------------------
@@ -167,5 +340,29 @@ enum PlanStatus {
   ACTIVE
   PAST_DUE
   SUSPENDED
+  CANCELLED
+}
+
+enum Sex {
+  MALE
+  FEMALE
+}
+
+enum DocumentType {
+  XRAY
+  PHOTO
+  LAB
+  CONSENT
+  INSURANCE_CARD
+  OTHER
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  CHECKED_IN
+  IN_CHAIR
+  COMPLETED
+  NO_SHOW
   CANCELLED
 }

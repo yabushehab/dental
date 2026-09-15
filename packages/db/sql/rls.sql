@@ -30,7 +30,11 @@ DO $$
 DECLARE
   t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['clinics', 'memberships', 'providers', 'audit_events']
+  FOREACH t IN ARRAY ARRAY[
+    'clinics', 'memberships', 'providers', 'audit_events',
+    'patients', 'medical_histories', 'documents',
+    'chairs', 'appointment_types', 'appointments', 'counters'
+  ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);

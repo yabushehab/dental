@@ -1,4 +1,11 @@
+import Link from "next/link";
 import { requirePermission } from "@/lib/rbac";
+
+const SECTIONS = [
+  { href: "/settings/branches", title: "Branches", desc: "Locations of your dental center" },
+  { href: "/settings/chairs", title: "Chairs", desc: "Treatment chairs per branch" },
+  { href: "/settings/appointment-types", title: "Appointment types", desc: "Visit types, durations, colors" },
+];
 
 export default async function SettingsPage() {
   const { organization } = await requirePermission("settings:manage");
@@ -19,6 +26,19 @@ export default async function SettingsPage() {
         Organization settings — branches, staff, tax, and channel connections arrive with their
         phases.
       </p>
+      <div className="mt-6 grid max-w-3xl gap-4 sm:grid-cols-3">
+        {SECTIONS.map((s) => (
+          <Link
+            key={s.href}
+            href={s.href}
+            className="rounded-xl border border-gray-200 bg-white p-4 hover:border-brand-300 hover:shadow-sm"
+          >
+            <div className="text-sm font-semibold text-gray-900">{s.title}</div>
+            <div className="mt-1 text-xs text-gray-500">{s.desc}</div>
+          </Link>
+        ))}
+      </div>
+
       <div className="mt-6 max-w-lg rounded-xl border border-gray-200 bg-white">
         <dl className="divide-y divide-gray-100">
           {rows.map(([label, value]) => (

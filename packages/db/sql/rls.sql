@@ -33,7 +33,10 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'clinics', 'memberships', 'providers', 'audit_events',
     'patients', 'medical_histories', 'documents',
-    'chairs', 'appointment_types', 'appointments', 'counters'
+    'chairs', 'appointment_types', 'appointments', 'counters',
+    'tooth_records', 'chart_entries', 'procedure_codes',
+    'treatment_plans', 'treatment_plan_items',
+    'clinical_notes', 'note_amendments', 'prescriptions'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);

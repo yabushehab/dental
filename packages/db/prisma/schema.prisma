@@ -42,6 +42,14 @@ model Organization {
   appointmentTypes AppointmentType[]
   appointments     Appointment[]
   counters         Counter[]
+  toothRecords     ToothRecord[]
+  chartEntries     ChartEntry[]
+  procedureCodes   ProcedureCode[]
+  treatmentPlans   TreatmentPlan[]
+  planItems        TreatmentPlanItem[]
+  clinicalNotes    ClinicalNote[]
+  noteAmendments   NoteAmendment[]
+  prescriptions    Prescription[]
 
   @@map("organizations")
 }
@@ -122,9 +130,13 @@ model Provider {
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
-  membership   Membership    @relation(fields: [membershipId], references: [id])
-  organization Organization  @relation(fields: [organizationId], references: [id])
-  appointments Appointment[]
+  membership     Membership      @relation(fields: [membershipId], references: [id])
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  appointments   Appointment[]
+  chartEntries   ChartEntry[]
+  treatmentPlans TreatmentPlan[]
+  clinicalNotes  ClinicalNote[]
+  prescriptions  Prescription[]
 
   @@index([organizationId])
   @@map("providers")
@@ -162,6 +174,11 @@ model Patient {
   medicalHistories MedicalHistory[]
   documents        Document[]
   appointments     Appointment[]
+  toothRecords     ToothRecord[]
+  chartEntries     ChartEntry[]
+  treatmentPlans   TreatmentPlan[]
+  clinicalNotes    ClinicalNote[]
+  prescriptions    Prescription[]
 
   @@unique([organizationId, fileNumber])
   @@index([organizationId, lastName, firstName])
@@ -266,17 +283,202 @@ model Appointment {
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
-  organization Organization     @relation(fields: [organizationId], references: [id])
-  clinic       Clinic           @relation(fields: [clinicId], references: [id])
-  patient      Patient          @relation(fields: [patientId], references: [id])
-  provider     Provider         @relation(fields: [providerId], references: [id])
-  chair        Chair?           @relation(fields: [chairId], references: [id])
-  type         AppointmentType? @relation(fields: [typeId], references: [id])
+  organization  Organization     @relation(fields: [organizationId], references: [id])
+  clinic        Clinic           @relation(fields: [clinicId], references: [id])
+  patient       Patient          @relation(fields: [patientId], references: [id])
+  provider      Provider         @relation(fields: [providerId], references: [id])
+  chair         Chair?           @relation(fields: [chairId], references: [id])
+  type          AppointmentType? @relation(fields: [typeId], references: [id])
+  chartEntries  ChartEntry[]
+  clinicalNotes ClinicalNote[]
 
   @@index([organizationId, clinicId, startsAt])
   @@index([organizationId, providerId, startsAt])
   @@index([patientId, startsAt])
   @@map("appointments")
+}
+
+// ---------------------------------------------------------------------------
+// Clinical
+// ---------------------------------------------------------------------------
+
+/// Current state of one tooth (FDI). Absence of a row = PRESENT.
+model ToothRecord {
+  id             String      @id @default(cuid())
+  organizationId String
+  patientId      String
+  toothFdi       Int
+  status         ToothStatus @default(PRESENT)
+  notes          String?
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  patient      Patient      @relation(fields: [patientId], references: [id])
+
+  @@unique([patientId, toothFdi])
+  @@index([organizationId])
+  @@map("tooth_records")
+}
+
+/// One finding / planned procedure / completed procedure on a tooth
+/// (or whole mouth when toothFdi is null). The chart is a projection of these.
+model ChartEntry {
+  id                  String         @id @default(cuid())
+  organizationId      String
+  patientId           String
+  toothFdi            Int?
+  /// subset of M O D B L I
+  surfaces            String[]       @default([])
+  kind                ChartEntryKind
+  procedureCodeId     String?
+  description         String
+  providerId          String?
+  appointmentId       String?
+  treatmentPlanItemId String?
+  enteredByUserId     String?
+  createdAt           DateTime       @default(now())
+
+  organization  Organization       @relation(fields: [organizationId], references: [id])
+  patient       Patient            @relation(fields: [patientId], references: [id])
+  procedureCode ProcedureCode?     @relation(fields: [procedureCodeId], references: [id])
+  provider      Provider?          @relation(fields: [providerId], references: [id])
+  appointment   Appointment?       @relation(fields: [appointmentId], references: [id])
+  planItem      TreatmentPlanItem? @relation(fields: [treatmentPlanItemId], references: [id])
+
+  @@index([organizationId, patientId, createdAt])
+  @@index([patientId, toothFdi])
+  @@map("chart_entries")
+}
+
+/// Per-organization procedure catalog. Seeded with a standard dental set;
+/// clinics edit prices. vatRate 0 = zero-rated healthcare (Bahrain);
+/// cosmetic procedures carry the standard 10%.
+model ProcedureCode {
+  id               String            @id @default(cuid())
+  organizationId   String
+  code             String
+  name             String
+  category         ProcedureCategory
+  defaultPriceFils Int               @default(0)
+  vatRate          Decimal           @default(0.00) @db.Decimal(5, 2)
+  defaultMins      Int?
+  isPerTooth       Boolean           @default(false)
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  chartEntries ChartEntry[]
+  planItems    TreatmentPlanItem[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, category])
+  @@map("procedure_codes")
+}
+
+model TreatmentPlan {
+  id             String              @id @default(cuid())
+  organizationId String
+  patientId      String
+  providerId     String?
+  title          String
+  status         TreatmentPlanStatus @default(DRAFT)
+  notes          String?
+  presentedAt    DateTime?
+  acceptedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  patient      Patient             @relation(fields: [patientId], references: [id])
+  provider     Provider?           @relation(fields: [providerId], references: [id])
+  items        TreatmentPlanItem[]
+
+  @@index([organizationId, patientId])
+  @@map("treatment_plans")
+}
+
+model TreatmentPlanItem {
+  id              String         @id @default(cuid())
+  organizationId  String
+  planId          String
+  procedureCodeId String
+  toothFdi        Int?
+  surfaces        String[]       @default([])
+  /// phase number for sequencing treatment (1, 2, 3…)
+  phase           Int            @default(1)
+  priceFils       Int
+  vatRate         Decimal        @default(0.00) @db.Decimal(5, 2)
+  status          PlanItemStatus @default(PENDING)
+  completedAt     DateTime?
+  createdAt       DateTime       @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id])
+  plan          TreatmentPlan @relation(fields: [planId], references: [id])
+  procedureCode ProcedureCode @relation(fields: [procedureCodeId], references: [id])
+  chartEntries  ChartEntry[]
+
+  @@index([organizationId, planId])
+  @@map("treatment_plan_items")
+}
+
+/// SOAP note — immutable once signed; corrections go through NoteAmendment.
+model ClinicalNote {
+  id             String    @id @default(cuid())
+  organizationId String
+  patientId      String
+  providerId     String
+  appointmentId  String?
+  subjective     String    @default("")
+  objective      String    @default("")
+  assessment     String    @default("")
+  plan           String    @default("")
+  signedAt       DateTime?
+  signedByUserId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  patient      Patient         @relation(fields: [patientId], references: [id])
+  provider     Provider        @relation(fields: [providerId], references: [id])
+  appointment  Appointment?    @relation(fields: [appointmentId], references: [id])
+  amendments   NoteAmendment[]
+
+  @@index([organizationId, patientId, createdAt])
+  @@map("clinical_notes")
+}
+
+model NoteAmendment {
+  id             String   @id @default(cuid())
+  organizationId String
+  noteId         String
+  text           String
+  byUserId       String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  note         ClinicalNote @relation(fields: [noteId], references: [id])
+
+  @@index([noteId])
+  @@map("note_amendments")
+}
+
+model Prescription {
+  id             String   @id @default(cuid())
+  organizationId String
+  patientId      String
+  providerId     String
+  /// [{ drug, dose, frequency, duration }]
+  items          Json
+  notes          String?
+  issuedAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  patient      Patient      @relation(fields: [patientId], references: [id])
+  provider     Provider     @relation(fields: [providerId], references: [id])
+
+  @@index([organizationId, patientId, issuedAt])
+  @@map("prescriptions")
 }
 
 /// Per-organization named sequences (patient file numbers, invoice numbers…).
@@ -364,5 +566,47 @@ enum AppointmentStatus {
   IN_CHAIR
   COMPLETED
   NO_SHOW
+  CANCELLED
+}
+
+enum ToothStatus {
+  PRESENT
+  MISSING
+  EXTRACTED
+  IMPLANT
+  UNERUPTED
+}
+
+enum ChartEntryKind {
+  FINDING
+  PLANNED
+  COMPLETED
+}
+
+enum ProcedureCategory {
+  DIAGNOSTIC
+  PREVENTIVE
+  RESTORATIVE
+  ENDO
+  PERIO
+  PROSTHO
+  ORTHO
+  SURGERY
+  IMPLANT
+  COSMETIC
+}
+
+enum TreatmentPlanStatus {
+  DRAFT
+  PROPOSED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PlanItemStatus {
+  PENDING
+  COMPLETED
   CANCELLED
 }

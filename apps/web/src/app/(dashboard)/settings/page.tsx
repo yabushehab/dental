@@ -5,6 +5,7 @@ const SECTIONS = [
   { href: "/settings/branches", title: "Branches", desc: "Locations of your dental center" },
   { href: "/settings/chairs", title: "Chairs", desc: "Treatment chairs per branch" },
   { href: "/settings/appointment-types", title: "Appointment types", desc: "Visit types, durations, colors" },
+  { href: "/settings/procedures", title: "Procedure catalog", desc: "Codes, prices, VAT rates" },
 ];
 
 export default async function SettingsPage() {

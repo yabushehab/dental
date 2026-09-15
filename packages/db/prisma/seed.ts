@@ -207,6 +207,136 @@ async function main() {
     }
   }
 
+  // --- Phase 2: procedure catalog + demo clinical data ---------------------
+  // prices in fils (BHD*1000); vatRate 0 = zero-rated healthcare, 10 = cosmetic
+  const procedureDefs: Array<{
+    code: string; name: string; category:
+      | "DIAGNOSTIC" | "PREVENTIVE" | "RESTORATIVE" | "ENDO" | "PERIO"
+      | "PROSTHO" | "ORTHO" | "SURGERY" | "IMPLANT" | "COSMETIC";
+    priceFils: number; vatRate?: number; mins?: number; perTooth?: boolean;
+  }> = [
+    { code: "D0110", name: "Comprehensive oral examination", category: "DIAGNOSTIC", priceFils: 15000, mins: 30 },
+    { code: "D0220", name: "Periapical X-ray", category: "DIAGNOSTIC", priceFils: 5000, mins: 10, perTooth: true },
+    { code: "D0330", name: "Panoramic X-ray (OPG)", category: "DIAGNOSTIC", priceFils: 15000, mins: 15 },
+    { code: "D1110", name: "Scaling & polishing", category: "PREVENTIVE", priceFils: 25000, mins: 45 },
+    { code: "D1206", name: "Fluoride application", category: "PREVENTIVE", priceFils: 10000, mins: 15 },
+    { code: "D1351", name: "Fissure sealant", category: "PREVENTIVE", priceFils: 12000, mins: 20, perTooth: true },
+    { code: "D2391", name: "Composite filling — one surface", category: "RESTORATIVE", priceFils: 25000, mins: 45, perTooth: true },
+    { code: "D2392", name: "Composite filling — two surfaces", category: "RESTORATIVE", priceFils: 35000, mins: 60, perTooth: true },
+    { code: "D2393", name: "Composite filling — three+ surfaces", category: "RESTORATIVE", priceFils: 45000, mins: 60, perTooth: true },
+    { code: "D3310", name: "Root canal — anterior", category: "ENDO", priceFils: 80000, mins: 90, perTooth: true },
+    { code: "D3320", name: "Root canal — premolar", category: "ENDO", priceFils: 100000, mins: 90, perTooth: true },
+    { code: "D3330", name: "Root canal — molar", category: "ENDO", priceFils: 130000, mins: 120, perTooth: true },
+    { code: "D4341", name: "Deep scaling / root planing (per quadrant)", category: "PERIO", priceFils: 30000, mins: 45 },
+    { code: "D2740", name: "Zirconia crown", category: "PROSTHO", priceFils: 150000, mins: 60, perTooth: true },
+    { code: "D5110", name: "Complete denture (upper)", category: "PROSTHO", priceFils: 350000, mins: 60 },
+    { code: "D7140", name: "Simple extraction", category: "SURGERY", priceFils: 20000, mins: 30, perTooth: true },
+    { code: "D7240", name: "Surgical extraction — impacted", category: "SURGERY", priceFils: 80000, mins: 60, perTooth: true },
+    { code: "D6010", name: "Implant placement", category: "IMPLANT", priceFils: 400000, mins: 90, perTooth: true },
+    { code: "D9972", name: "Teeth whitening (in-office)", category: "COSMETIC", priceFils: 120000, vatRate: 10, mins: 60 },
+    { code: "D9973", name: "Composite veneer", category: "COSMETIC", priceFils: 60000, vatRate: 10, mins: 60, perTooth: true },
+  ];
+  for (const pd of procedureDefs) {
+    await prisma.procedureCode.upsert({
+      where: { organizationId_code: { organizationId: org.id, code: pd.code } },
+      update: {},
+      create: {
+        organizationId: org.id,
+        code: pd.code,
+        name: pd.name,
+        category: pd.category,
+        defaultPriceFils: pd.priceFils,
+        vatRate: pd.vatRate ?? 0,
+        defaultMins: pd.mins ?? null,
+        isPerTooth: pd.perTooth ?? false,
+      },
+    });
+  }
+
+  // demo clinical data for Mohammed Al-Khalifa (patient 0)
+  const demoPatient = patients[0];
+  const demoProvider = providers[0];
+  const codeByCode = new Map(
+    (await prisma.procedureCode.findMany({ where: { organizationId: org.id } })).map((c) => [c.code, c]),
+  );
+  if (demoPatient && demoProvider) {
+    const hasChart = await prisma.chartEntry.count({
+      where: { organizationId: org.id, patientId: demoPatient.id },
+    });
+    if (hasChart === 0) {
+      await prisma.toothRecord.create({
+        data: { organizationId: org.id, patientId: demoPatient.id, toothFdi: 18, status: "MISSING" },
+      });
+      await prisma.chartEntry.createMany({
+        data: [
+          {
+            organizationId: org.id, patientId: demoPatient.id, toothFdi: 36,
+            surfaces: ["O", "M"], kind: "FINDING", description: "Deep caries, sensitive to cold",
+            providerId: demoProvider.id,
+          },
+          {
+            organizationId: org.id, patientId: demoPatient.id, toothFdi: 36,
+            surfaces: ["O", "M"], kind: "PLANNED", description: "Root canal + crown",
+            procedureCodeId: codeByCode.get("D3330")?.id, providerId: demoProvider.id,
+          },
+          {
+            organizationId: org.id, patientId: demoPatient.id, toothFdi: 24,
+            surfaces: ["O"], kind: "COMPLETED", description: "Composite filling placed",
+            procedureCodeId: codeByCode.get("D2391")?.id, providerId: demoProvider.id,
+          },
+        ],
+      });
+
+      const plan = await prisma.treatmentPlan.create({
+        data: {
+          organizationId: org.id, patientId: demoPatient.id, providerId: demoProvider.id,
+          title: "Tooth 36 restoration", status: "ACCEPTED",
+          presentedAt: new Date(), acceptedAt: new Date(),
+        },
+      });
+      const rc = codeByCode.get("D3330");
+      const crown = codeByCode.get("D2740");
+      if (rc && crown) {
+        await prisma.treatmentPlanItem.createMany({
+          data: [
+            {
+              organizationId: org.id, planId: plan.id, procedureCodeId: rc.id,
+              toothFdi: 36, surfaces: ["O", "M"], phase: 1,
+              priceFils: rc.defaultPriceFils, vatRate: rc.vatRate,
+            },
+            {
+              organizationId: org.id, planId: plan.id, procedureCodeId: crown.id,
+              toothFdi: 36, phase: 2,
+              priceFils: crown.defaultPriceFils, vatRate: crown.vatRate,
+            },
+          ],
+        });
+      }
+
+      const ownerUser = await prisma.user.findUnique({ where: { email: "owner@demo.test" } });
+      await prisma.clinicalNote.create({
+        data: {
+          organizationId: org.id, patientId: demoPatient.id, providerId: demoProvider.id,
+          subjective: "Patient reports sharp pain in lower left molar when drinking cold water, 2 weeks.",
+          objective: "Tooth 36: deep occlusal-mesial caries. Cold test: lingering pain. Percussion: mild tenderness.",
+          assessment: "Irreversible pulpitis, tooth 36.",
+          plan: "Root canal treatment 36, then zirconia crown. Amoxicillin not indicated. Review in 1 week.",
+          signedAt: new Date(), signedByUserId: ownerUser?.id ?? null,
+        },
+      });
+      await prisma.prescription.create({
+        data: {
+          organizationId: org.id, patientId: demoPatient.id, providerId: demoProvider.id,
+          items: [
+            { drug: "Ibuprofen 400mg", dose: "1 tablet", frequency: "every 8 hours", duration: "5 days" },
+            { drug: "Chlorhexidine 0.12% mouthwash", dose: "15ml rinse", frequency: "twice daily", duration: "7 days" },
+          ],
+          notes: "Take ibuprofen after food. Avoid penicillin — allergy on record.",
+        },
+      });
+    }
+  }
+
   console.log("Seeded demo organization:");
   console.log("  owner@demo.test / password123 (OWNER)");
   console.log("  dentist@demo.test / password123 (DENTIST)");

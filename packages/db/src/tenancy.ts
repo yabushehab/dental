@@ -16,6 +16,14 @@ export const TENANT_MODELS = new Set<string>([
   "AppointmentType",
   "Appointment",
   "Counter",
+  "ToothRecord",
+  "ChartEntry",
+  "ProcedureCode",
+  "TreatmentPlan",
+  "TreatmentPlanItem",
+  "ClinicalNote",
+  "NoteAmendment",
+  "Prescription",
 ]);
 
 /**

@@ -25,7 +25,7 @@
 | Database | PostgreSQL 16 | Relational integrity for clinical/financial data; JSONB where flexibility is needed (chart annotations, message payloads) |
 | ORM | Prisma | Schema-as-code, migrations, works across web + worker |
 | Background jobs | Node worker app using BullMQ + Redis | Webhook ingestion, reminder scheduling, campaign sends, retries with backoff |
-| Auth | Auth.js (email/password + optional Google), session cookies | Simple, self-hosted, no vendor lock-in |
+| Auth | Email/password (bcrypt) with jose-signed JWT session cookies | Simple, self-hosted, no vendor lock-in; OAuth providers can be layered on later |
 | File storage | S3-compatible object storage (X-rays, documents, message media) | Presigned URLs; never store PHI files on app servers |
 | Realtime | Pusher-compatible websockets (or Soketi self-hosted) | Live inbox updates + calendar changes |
 | Hosting (initial) | Vercel (web) + small VM/container host (worker + Redis) + managed Postgres | Cheap to start, standard to migrate |

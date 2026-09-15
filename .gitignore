@@ -1,0 +1,15 @@
+node_modules/
+.next/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# env — commit only .env.example
+.env
+.env.*
+!.env.example
+
+# prisma generated client
+packages/db/generated/
+
+.DS_Store

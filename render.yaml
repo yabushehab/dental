@@ -1,0 +1,77 @@
+# Render Blueprint — provisions Postgres, the web app, and the worker.
+# Deploy: push this repo to GitHub, then Render Dashboard → New → Blueprint.
+# Frankfurt is the closest Render region to Bahrain.
+
+databases:
+  - name: dentalos-db
+    databaseName: dentalos
+    user: dentalos
+    region: frankfurt
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    ipAllowList: [] # only reachable from Render services
+
+envVarGroups:
+  # Shared by web and worker. AUTH_SECRET signs session cookies and
+  # META_TOKEN_KEY encrypts channel access tokens — the worker decrypts what
+  # the web app encrypted, so both services must read identical values.
+  - name: dentalos-secrets
+    envVars:
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: META_TOKEN_KEY
+        generateValue: true
+      # Fill these in the dashboard once the Meta app exists (see
+      # docs/DEPLOYMENT.md). Leave blank to run channels in simulated mode.
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      # S3-compatible storage for X-rays and documents. Blank = uploads
+      # disabled with an in-app notice.
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+
+services:
+  - type: web
+    name: dentalos-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile.web
+    dockerContext: .
+    region: frankfurt
+    plan: starter
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - fromGroup: dentalos-secrets
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dentalos-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+
+  - type: worker
+    name: dentalos-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    dockerContext: .
+    region: frankfurt
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - fromGroup: dentalos-secrets
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dentalos-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production

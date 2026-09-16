@@ -14,6 +14,7 @@ expand regionally.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, tech stack, multi-tenancy, repo layout |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Database schema — every entity and relationship |
 | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | WhatsApp Cloud API, Meta Graph API (Instagram/Facebook) design |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deploying to production, environment variables, going live with Meta |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Build phases and milestones |
 
 ## Product Modules

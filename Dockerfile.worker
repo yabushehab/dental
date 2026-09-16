@@ -1,0 +1,33 @@
+# DentalOS background worker — webhook processing, reminders, campaigns.
+# Build from the repository root:  docker build -f Dockerfile.worker -t dentalos-worker .
+
+FROM node:22-slim AS base
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+RUN corepack enable
+WORKDIR /app
+
+FROM base AS deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/web/package.json apps/web/
+COPY apps/worker/package.json apps/worker/
+COPY packages/config/package.json packages/config/
+COPY packages/db/package.json packages/db/
+COPY packages/meta/package.json packages/meta/
+COPY packages/shared/package.json packages/shared/
+RUN pnpm install --frozen-lockfile
+
+FROM deps AS runner
+ENV NODE_ENV=production
+COPY packages/ packages/
+COPY apps/worker/ apps/worker/
+RUN pnpm --filter @dentalos/db generate
+
+RUN useradd --system --uid 1001 dentalos && chown -R dentalos /app
+USER dentalos
+
+# The worker runs pending migrations before starting its loops: it is a
+# single instance, so this is race-free, and it keeps schema changes tied to
+# a deploy. The worker has no inbound port; it polls the database.
+CMD ["sh", "-c", "pnpm --filter @dentalos/db migrate:deploy && pnpm --filter @dentalos/worker start"]

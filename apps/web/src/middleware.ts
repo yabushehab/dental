@@ -28,6 +28,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // everything except static assets and (future) webhook endpoints
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/webhooks).*)"],
+  // Everything except static assets and endpoints that must stay reachable
+  // without a session: Meta webhooks and the platform health probe.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/webhooks|api/health).*)"],
 };

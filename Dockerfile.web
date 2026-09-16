@@ -1,0 +1,45 @@
+# DentalOS web app — Next.js standalone server.
+# Build from the repository root:  docker build -f Dockerfile.web -t dentalos-web .
+
+FROM node:22-slim AS base
+# openssl is required by the Prisma query engine
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+RUN corepack enable
+WORKDIR /app
+
+# --- dependencies (cached on lockfile + manifests) ---------------------------
+FROM base AS deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/web/package.json apps/web/
+COPY apps/worker/package.json apps/worker/
+COPY packages/config/package.json packages/config/
+COPY packages/db/package.json packages/db/
+COPY packages/meta/package.json packages/meta/
+COPY packages/shared/package.json packages/shared/
+RUN pnpm install --frozen-lockfile
+
+# --- build -------------------------------------------------------------------
+FROM deps AS build
+COPY . .
+RUN pnpm --filter @dentalos/db generate
+RUN pnpm --filter @dentalos/web build
+
+# --- runtime -----------------------------------------------------------------
+FROM base AS runner
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# The standalone bundle carries its own minimal node_modules, including the
+# traced Prisma client and query engine.
+COPY --from=build /app/apps/web/.next/standalone ./
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /app/apps/web/public ./apps/web/public
+
+RUN useradd --system --uid 1001 dentalos && chown -R dentalos /app
+USER dentalos
+
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]

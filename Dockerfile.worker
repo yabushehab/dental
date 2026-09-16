@@ -26,8 +26,15 @@ RUN pnpm --filter @dentalos/db generate
 
 RUN useradd --system --uid 1001 dentalos && chown -R dentalos /app
 USER dentalos
+# Tools that expect a writable home (Prisma caches) get one inside /app,
+# which this user owns.
+ENV HOME=/app
 
 # The worker runs pending migrations before starting its loops: it is a
 # single instance, so this is race-free, and it keeps schema changes tied to
 # a deploy. The worker has no inbound port; it polls the database.
-CMD ["sh", "-c", "pnpm --filter @dentalos/db migrate:deploy && pnpm --filter @dentalos/worker start"]
+# Invoke the binaries directly rather than through pnpm: corepack would try
+# to provision pnpm into a cache this non-root user cannot write, which fails
+# at startup. exec keeps tsx as PID 1's child so SIGTERM still shuts it down
+# gracefully.
+CMD ["sh", "-c", "cd /app/packages/db && ./node_modules/.bin/prisma migrate deploy && cd /app/apps/worker && exec ./node_modules/.bin/tsx src/index.ts"]

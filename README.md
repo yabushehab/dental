@@ -7,6 +7,14 @@ Facebook Messenger).
 **Primary market:** Bahrain (BHD, 10% VAT, NHRA/PDPL compliance), designed to
 expand regionally.
 
+## Deploy
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/yabushehab/dental)
+
+One click opens Render's blueprint flow for this repository and provisions the
+database, web app, and background worker. Full runbook, including going live
+with WhatsApp: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ## Documentation
 
 | Document | Contents |

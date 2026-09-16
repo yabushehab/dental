@@ -6,6 +6,7 @@ const TABS = [
   { href: "/plans", label: "Treatment plans" },
   { href: "/notes", label: "Clinical notes" },
   { href: "/prescriptions", label: "Prescriptions" },
+  { href: "/billing", label: "Billing" },
   { href: "/medical", label: "Medical history" },
   { href: "/documents", label: "Documents" },
 ];

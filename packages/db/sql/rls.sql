@@ -36,7 +36,9 @@ BEGIN
     'chairs', 'appointment_types', 'appointments', 'counters',
     'tooth_records', 'chart_entries', 'procedure_codes',
     'treatment_plans', 'treatment_plan_items',
-    'clinical_notes', 'note_amendments', 'prescriptions'
+    'clinical_notes', 'note_amendments', 'prescriptions',
+    'invoices', 'invoice_lines', 'payments',
+    'insurance_companies', 'insurance_policies', 'insurance_claims'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);

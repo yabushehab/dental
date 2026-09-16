@@ -6,6 +6,7 @@ const SECTIONS = [
   { href: "/settings/chairs", title: "Chairs", desc: "Treatment chairs per branch" },
   { href: "/settings/appointment-types", title: "Appointment types", desc: "Visit types, durations, colors" },
   { href: "/settings/procedures", title: "Procedure catalog", desc: "Codes, prices, VAT rates" },
+  { href: "/settings/insurance", title: "Insurance companies", desc: "Insurers you accept" },
 ];
 
 export default async function SettingsPage() {

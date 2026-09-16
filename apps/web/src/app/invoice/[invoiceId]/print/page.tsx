@@ -1,0 +1,124 @@
+import { notFound } from "next/navigation";
+import { formatMoney } from "@dentalos/shared";
+import { requireOrgContext } from "@/lib/org";
+import { orgCurrency } from "@/lib/currency";
+import { fileNo, fullName } from "@/lib/format";
+import { PrintButton } from "@/app/rx/[rxId]/print/print-button";
+
+/** Printable tax invoice — browser print produces the PDF. */
+export default async function InvoicePrintPage({
+  params,
+}: {
+  params: Promise<{ invoiceId: string }>;
+}) {
+  const { db, organization } = await requireOrgContext();
+  const { invoiceId } = await params;
+  const currency = orgCurrency(organization);
+
+  const invoice = await db.invoice.findUnique({
+    where: { id: invoiceId },
+    include: { patient: true, lines: true, clinic: true },
+  });
+  if (!invoice || !invoice.number) notFound();
+
+  const due = Math.max(0, invoice.totalFils - invoice.paidFils);
+
+  return (
+    <main className="mx-auto max-w-3xl bg-white p-10 text-gray-900 print:p-0">
+      <div className="mb-4 flex justify-end print:hidden">
+        <PrintButton />
+      </div>
+
+      <header className="flex items-start justify-between border-b-2 border-gray-800 pb-4">
+        <div>
+          <h1 className="text-2xl font-bold">{organization.name}</h1>
+          <p className="text-sm text-gray-600">
+            {invoice.clinic.name}
+            {invoice.clinic.address ? ` · ${invoice.clinic.address}` : ""}
+            {invoice.clinic.phone ? ` · ${invoice.clinic.phone}` : ""}
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-lg font-bold">TAX INVOICE</div>
+          <div className="font-mono text-sm">{invoice.number}</div>
+        </div>
+      </header>
+
+      <section className="mt-6 grid grid-cols-2 gap-y-1 text-sm">
+        <div>
+          <span className="text-gray-500">Billed to: </span>
+          <span className="font-semibold">{fullName(invoice.patient)}</span>{" "}
+          <span className="text-gray-400">{fileNo(invoice.patient.fileNumber)}</span>
+        </div>
+        <div className="text-right">
+          <span className="text-gray-500">Issued: </span>
+          {invoice.issuedAt?.toISOString().slice(0, 10)}
+        </div>
+        <div>
+          <span className="text-gray-500">CPR: </span>
+          {invoice.patient.cpr ?? "—"}
+        </div>
+        <div className="text-right">
+          <span className="text-gray-500">Due: </span>
+          {invoice.dueAt?.toISOString().slice(0, 10) ?? "—"}
+        </div>
+      </section>
+
+      <table className="mt-8 w-full text-sm">
+        <thead>
+          <tr className="border-b-2 border-gray-800 text-left text-xs uppercase tracking-wide">
+            <th className="py-2">Description</th>
+            <th className="py-2">Tooth</th>
+            <th className="py-2 text-right">Qty</th>
+            <th className="py-2 text-right">Unit</th>
+            <th className="py-2 text-right">VAT</th>
+            <th className="py-2 text-right">Total</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200">
+          {invoice.lines.map((l) => (
+            <tr key={l.id}>
+              <td className="py-2">{l.description}</td>
+              <td className="py-2">{l.toothFdi ?? ""}</td>
+              <td className="py-2 text-right">{l.qty}</td>
+              <td className="py-2 text-right">{formatMoney(l.unitPriceFils, currency)}</td>
+              <td className="py-2 text-right">
+                {Number(l.vatRate) > 0 ? `${Number(l.vatRate)}%` : "0%"}
+              </td>
+              <td className="py-2 text-right">{formatMoney(l.totalFils, currency)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="mt-4 ml-auto w-64 space-y-1 text-sm">
+        <div className="flex justify-between">
+          <span className="text-gray-500">Subtotal</span>
+          <span>{formatMoney(invoice.subtotalFils, currency)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">VAT</span>
+          <span>{formatMoney(invoice.vatFils, currency)}</span>
+        </div>
+        <div className="flex justify-between border-t border-gray-800 pt-1 text-base font-bold">
+          <span>Total</span>
+          <span>{formatMoney(invoice.totalFils, currency)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">Paid</span>
+          <span>{formatMoney(invoice.paidFils, currency)}</span>
+        </div>
+        <div className="flex justify-between font-semibold">
+          <span>Balance due</span>
+          <span>{formatMoney(due, currency)}</span>
+        </div>
+      </div>
+
+      {invoice.notes && <p className="mt-6 text-sm text-gray-600">{invoice.notes}</p>}
+
+      <footer className="mt-12 border-t border-gray-200 pt-3 text-xs text-gray-400">
+        Zero-rated items are basic healthcare services under Bahrain VAT law. Generated by DentalOS.
+      </footer>
+    </main>
+  );
+}

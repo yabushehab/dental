@@ -50,6 +50,12 @@ model Organization {
   clinicalNotes    ClinicalNote[]
   noteAmendments   NoteAmendment[]
   prescriptions    Prescription[]
+  invoices         Invoice[]
+  invoiceLines     InvoiceLine[]
+  payments         Payment[]
+  insuranceCompanies InsuranceCompany[]
+  insurancePolicies  InsurancePolicy[]
+  insuranceClaims    InsuranceClaim[]
 
   @@map("organizations")
 }
@@ -70,6 +76,8 @@ model Clinic {
   organization Organization  @relation(fields: [organizationId], references: [id])
   chairs       Chair[]
   appointments Appointment[]
+  invoices     Invoice[]
+  payments     Payment[]
 
   @@index([organizationId])
   @@map("clinics")
@@ -179,6 +187,9 @@ model Patient {
   treatmentPlans   TreatmentPlan[]
   clinicalNotes    ClinicalNote[]
   prescriptions    Prescription[]
+  invoices         Invoice[]
+  payments         Payment[]
+  insurancePolicies InsurancePolicy[]
 
   @@unique([organizationId, fileNumber])
   @@index([organizationId, lastName, firstName])
@@ -370,6 +381,7 @@ model ProcedureCode {
   organization Organization        @relation(fields: [organizationId], references: [id])
   chartEntries ChartEntry[]
   planItems    TreatmentPlanItem[]
+  invoiceLines InvoiceLine[]
 
   @@unique([organizationId, code])
   @@index([organizationId, category])
@@ -417,6 +429,7 @@ model TreatmentPlanItem {
   plan          TreatmentPlan @relation(fields: [planId], references: [id])
   procedureCode ProcedureCode @relation(fields: [procedureCodeId], references: [id])
   chartEntries  ChartEntry[]
+  invoiceLines  InvoiceLine[]
 
   @@index([organizationId, planId])
   @@map("treatment_plan_items")
@@ -479,6 +492,157 @@ model Prescription {
 
   @@index([organizationId, patientId, issuedAt])
   @@map("prescriptions")
+}
+
+// ---------------------------------------------------------------------------
+// Billing — all amounts are integer minor units (fils for BHD)
+// ---------------------------------------------------------------------------
+
+model Invoice {
+  id                   String        @id @default(cuid())
+  organizationId       String
+  clinicId             String
+  patientId            String
+  /// assigned at issue time: INV-YYYY-NNNNN (null while draft)
+  number               String?
+  status               InvoiceStatus @default(DRAFT)
+  issuedAt             DateTime?
+  dueAt                DateTime?
+  subtotalFils         Int           @default(0)
+  vatFils              Int           @default(0)
+  totalFils            Int           @default(0)
+  paidFils             Int           @default(0)
+  insurancePortionFils Int           @default(0)
+  notes                String?
+  createdByUserId      String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  clinic       Clinic           @relation(fields: [clinicId], references: [id])
+  patient      Patient          @relation(fields: [patientId], references: [id])
+  lines        InvoiceLine[]
+  payments     Payment[]
+  claims       InsuranceClaim[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status, issuedAt])
+  @@index([patientId, createdAt])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id                  String  @id @default(cuid())
+  organizationId      String
+  invoiceId           String
+  /// set when the line bills a treatment plan item — prevents double billing
+  treatmentPlanItemId String? @unique
+  procedureCodeId     String?
+  description         String
+  toothFdi            Int?
+  qty                 Int     @default(1)
+  unitPriceFils       Int
+  vatRate             Decimal @default(0.00) @db.Decimal(5, 2)
+  vatFils             Int     @default(0)
+  totalFils           Int
+
+  organization  Organization       @relation(fields: [organizationId], references: [id])
+  invoice       Invoice            @relation(fields: [invoiceId], references: [id])
+  planItem      TreatmentPlanItem? @relation(fields: [treatmentPlanItemId], references: [id])
+  procedureCode ProcedureCode?     @relation(fields: [procedureCodeId], references: [id])
+
+  @@index([invoiceId])
+  @@map("invoice_lines")
+}
+
+model Payment {
+  id               String        @id @default(cuid())
+  organizationId   String
+  clinicId         String
+  patientId        String
+  /// null = unallocated payment, sits as patient credit
+  invoiceId        String?
+  amountFils       Int
+  method           PaymentMethod
+  reference        String?
+  /// RCP-YYYY-NNNNN
+  receiptNumber    String
+  receivedByUserId String?
+  receivedAt       DateTime      @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  clinic       Clinic       @relation(fields: [clinicId], references: [id])
+  patient      Patient      @relation(fields: [patientId], references: [id])
+  invoice      Invoice?     @relation(fields: [invoiceId], references: [id])
+
+  @@unique([organizationId, receiptNumber])
+  @@index([organizationId, receivedAt])
+  @@index([patientId])
+  @@map("payments")
+}
+
+model InsuranceCompany {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  phone          String?
+  email          String?
+  notes          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  policies     InsurancePolicy[]
+
+  @@index([organizationId])
+  @@map("insurance_companies")
+}
+
+model InsurancePolicy {
+  id              String    @id @default(cuid())
+  organizationId  String
+  patientId       String
+  companyId       String
+  policyNumber    String
+  memberId        String?
+  /// default percentage the insurer covers, e.g. 80.00
+  coveragePercent Decimal   @default(0.00) @db.Decimal(5, 2)
+  annualLimitFils Int?
+  expiresAt       DateTime?
+  coverageNotes   String?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  patient      Patient          @relation(fields: [patientId], references: [id])
+  company      InsuranceCompany @relation(fields: [companyId], references: [id])
+  claims       InsuranceClaim[]
+
+  @@index([organizationId, patientId])
+  @@map("insurance_policies")
+}
+
+/// Manual claim tracking (no insurer API in v1).
+model InsuranceClaim {
+  id              String      @id @default(cuid())
+  organizationId  String
+  invoiceId       String
+  policyId        String
+  claimedFils     Int
+  status          ClaimStatus @default(PREPARING)
+  submittedAt     DateTime?
+  resolvedAt      DateTime?
+  approvedFils    Int?
+  rejectionReason String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  invoice      Invoice         @relation(fields: [invoiceId], references: [id])
+  policy       InsurancePolicy @relation(fields: [policyId], references: [id])
+
+  @@index([organizationId, status])
+  @@map("insurance_claims")
 }
 
 /// Per-organization named sequences (patient file numbers, invoice numbers…).
@@ -609,4 +773,29 @@ enum PlanItemStatus {
   PENDING
   COMPLETED
   CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BENEFIT
+  BANK_TRANSFER
+  INSURANCE
+}
+
+enum ClaimStatus {
+  PREPARING
+  SUBMITTED
+  APPROVED
+  PARTIALLY_APPROVED
+  REJECTED
+  PAID
 }

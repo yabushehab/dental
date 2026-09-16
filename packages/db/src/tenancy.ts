@@ -24,6 +24,12 @@ export const TENANT_MODELS = new Set<string>([
   "ClinicalNote",
   "NoteAmendment",
   "Prescription",
+  "Invoice",
+  "InvoiceLine",
+  "Payment",
+  "InsuranceCompany",
+  "InsurancePolicy",
+  "InsuranceClaim",
 ]);
 
 /**

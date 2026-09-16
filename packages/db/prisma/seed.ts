@@ -337,6 +337,38 @@ async function main() {
     }
   }
 
+  // --- Phase 3: insurance companies + a demo policy -------------------------
+  for (const name of ["Bahrain National Insurance", "Solidarity Bahrain", "GIG Gulf"]) {
+    const exists = await prisma.insuranceCompany.findFirst({
+      where: { organizationId: org.id, name },
+    });
+    if (!exists) {
+      await prisma.insuranceCompany.create({ data: { organizationId: org.id, name } });
+    }
+  }
+  const bni = await prisma.insuranceCompany.findFirst({
+    where: { organizationId: org.id, name: "Bahrain National Insurance" },
+  });
+  if (bni && patients[0]) {
+    const hasPolicy = await prisma.insurancePolicy.findFirst({
+      where: { patientId: patients[0].id },
+    });
+    if (!hasPolicy) {
+      await prisma.insurancePolicy.create({
+        data: {
+          organizationId: org.id,
+          patientId: patients[0].id,
+          companyId: bni.id,
+          policyNumber: "BNI-2026-778812",
+          memberId: "M-0042",
+          coveragePercent: 80,
+          annualLimitFils: 500000,
+          expiresAt: new Date("2027-01-31"),
+        },
+      });
+    }
+  }
+
   console.log("Seeded demo organization:");
   console.log("  owner@demo.test / password123 (OWNER)");
   console.log("  dentist@demo.test / password123 (DENTIST)");

@@ -56,6 +56,14 @@ model Organization {
   insuranceCompanies InsuranceCompany[]
   insurancePolicies  InsurancePolicy[]
   insuranceClaims    InsuranceClaim[]
+  channels           Channel[]
+  contacts           Contact[]
+  conversations      Conversation[]
+  messages           Message[]
+  messageTemplates   MessageTemplate[]
+  campaigns          Campaign[]
+  reminderRules      ReminderRule[]
+  reminderLogs       ReminderLog[]
 
   @@map("organizations")
 }
@@ -190,6 +198,7 @@ model Patient {
   invoices         Invoice[]
   payments         Payment[]
   insurancePolicies InsurancePolicy[]
+  contacts         Contact[]
 
   @@unique([organizationId, fileNumber])
   @@index([organizationId, lastName, firstName])
@@ -645,6 +654,200 @@ model InsuranceClaim {
   @@map("insurance_claims")
 }
 
+// ---------------------------------------------------------------------------
+// CRM / omnichannel messaging
+// ---------------------------------------------------------------------------
+
+/// A connected platform account (WhatsApp number, Instagram business
+/// account, Facebook page). No access token = simulated mode: outbound
+/// messages are stored and marked SENT without calling Meta.
+model Channel {
+  id             String          @id @default(cuid())
+  organizationId String
+  platform       ChannelPlatform
+  /// phone-number-id (WA) / IG business id / page id
+  externalId     String
+  displayName    String
+  /// AES-256-GCM encrypted long-lived token (see @dentalos/meta)
+  accessTokenEnc String?
+  status         ChannelStatus   @default(CONNECTED)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  conversations Conversation[]
+
+  @@unique([platform, externalId])
+  @@index([organizationId])
+  @@map("channels")
+}
+
+/// A person on a platform (wa_id / IGSID / PSID), linkable to a Patient.
+model Contact {
+  id             String          @id @default(cuid())
+  organizationId String
+  platform       ChannelPlatform
+  externalUserId String
+  displayName    String?
+  phone          String?
+  patientId      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  patient       Patient?       @relation(fields: [patientId], references: [id])
+  conversations Conversation[]
+
+  @@unique([organizationId, platform, externalUserId])
+  @@map("contacts")
+}
+
+model Conversation {
+  id               String             @id @default(cuid())
+  organizationId   String
+  channelId        String
+  contactId        String
+  status           ConversationStatus @default(OPEN)
+  assignedToUserId String?
+  lastMessageAt    DateTime           @default(now())
+  /// drives the 24-hour free-form reply window
+  lastInboundAt    DateTime?
+  unreadCount      Int                @default(0)
+  labels           String[]           @default([])
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  channel      Channel      @relation(fields: [channelId], references: [id])
+  contact      Contact      @relation(fields: [contactId], references: [id])
+  messages     Message[]
+
+  @@unique([channelId, contactId])
+  @@index([organizationId, status, lastMessageAt])
+  @@map("conversations")
+}
+
+model Message {
+  id                String           @id @default(cuid())
+  organizationId    String
+  conversationId    String
+  direction         MessageDirection
+  externalMessageId String?          @unique
+  type              MessageType      @default(TEXT)
+  body              String?
+  templateName      String?
+  status            MessageStatus    @default(SENT)
+  failReason        String?
+  /// null for inbound and automated messages
+  sentByUserId      String?
+  at                DateTime         @default(now())
+  raw               Json?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, at])
+  @@map("messages")
+}
+
+/// WhatsApp-approved templates and internal quick replies.
+model MessageTemplate {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  platform       ChannelPlatform  @default(WHATSAPP)
+  language       String           @default("en")
+  /// body with {{1}}, {{2}} placeholders
+  body           String
+  metaTemplateId String?
+  approvalStatus TemplateApproval @default(DRAFT)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  campaigns     Campaign[]
+  reminderRules ReminderRule[]
+
+  @@unique([organizationId, name, language])
+  @@map("message_templates")
+}
+
+model Campaign {
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  templateId     String
+  /// filter: { tags?: string[], noVisitSinceDays?: number }
+  segment        Json           @default("{}")
+  scheduledAt    DateTime?
+  status         CampaignStatus @default(DRAFT)
+  /// { targeted, sent, skipped }
+  stats          Json           @default("{}")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  template     MessageTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([organizationId, status])
+  @@map("campaigns")
+}
+
+/// Raw inbound webhook deliveries — global (organization resolved during
+/// processing), idempotent on the body hash, kept for replay.
+model WebhookEvent {
+  id              String    @id @default(cuid())
+  platform        String
+  /// sha256 of the raw body — dedupes Meta redeliveries
+  externalEventId String    @unique
+  payload         Json
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+  error           String?
+
+  @@index([processedAt, receivedAt])
+  @@map("webhook_events")
+}
+
+// ---------------------------------------------------------------------------
+// Automated reminders
+// ---------------------------------------------------------------------------
+
+model ReminderRule {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  /// send when appointment is within this many hours
+  offsetHours          Int      @default(24)
+  templateId           String?
+  /// reply "confirm"/button moves the appointment to CONFIRMED
+  requiresConfirmation Boolean  @default(true)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  template     MessageTemplate? @relation(fields: [templateId], references: [id])
+  logs         ReminderLog[]
+
+  @@index([organizationId])
+  @@map("reminder_rules")
+}
+
+model ReminderLog {
+  id             String         @id @default(cuid())
+  organizationId String
+  appointmentId  String
+  ruleId         String
+  status         ReminderStatus @default(SENT)
+  detail         String?
+  sentAt         DateTime       @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  rule         ReminderRule @relation(fields: [ruleId], references: [id])
+
+  @@unique([appointmentId, ruleId])
+  @@map("reminder_logs")
+}
+
 /// Per-organization named sequences (patient file numbers, invoice numbers…).
 /// Incremented atomically via upsert.
 model Counter {
@@ -798,4 +1001,68 @@ enum ClaimStatus {
   PARTIALLY_APPROVED
   REJECTED
   PAID
+}
+
+enum ChannelPlatform {
+  WHATSAPP
+  INSTAGRAM
+  FACEBOOK
+}
+
+enum ChannelStatus {
+  CONNECTED
+  EXPIRED
+  DISCONNECTED
+}
+
+enum ConversationStatus {
+  OPEN
+  PENDING
+  RESOLVED
+  SNOOZED
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  TEMPLATE
+  OTHER
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  RECEIVED
+}
+
+enum TemplateApproval {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  DONE
+  CANCELLED
+}
+
+enum ReminderStatus {
+  SENT
+  FAILED
+  SKIPPED
 }

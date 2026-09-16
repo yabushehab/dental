@@ -38,7 +38,9 @@ BEGIN
     'treatment_plans', 'treatment_plan_items',
     'clinical_notes', 'note_amendments', 'prescriptions',
     'invoices', 'invoice_lines', 'payments',
-    'insurance_companies', 'insurance_policies', 'insurance_claims'
+    'insurance_companies', 'insurance_policies', 'insurance_claims',
+    'channels', 'contacts', 'conversations', 'messages',
+    'message_templates', 'campaigns', 'reminder_rules', 'reminder_logs'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);

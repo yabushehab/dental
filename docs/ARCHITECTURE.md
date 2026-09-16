@@ -24,7 +24,7 @@
 | API layer | Next.js route handlers + server actions; tRPC-style typed contracts via shared Zod schemas | End-to-end type safety without a second service |
 | Database | PostgreSQL 16 | Relational integrity for clinical/financial data; JSONB where flexibility is needed (chart annotations, message payloads) |
 | ORM | Prisma | Schema-as-code, migrations, works across web + worker |
-| Background jobs | Node worker app using BullMQ + Redis | Webhook ingestion, reminder scheduling, campaign sends, retries with backoff |
+| Background jobs | Node worker with DB-backed job loops (webhook events, reminders, campaigns) | The database is the queue — idempotent via processedAt markers and unique constraints; no broker to operate at clinic scale |
 | Auth | Email/password (bcrypt) with jose-signed JWT session cookies | Simple, self-hosted, no vendor lock-in; OAuth providers can be layered on later |
 | File storage | S3-compatible object storage (X-rays, documents, message media) | Presigned URLs; never store PHI files on app servers |
 | Realtime | Pusher-compatible websockets (or Soketi self-hosted) | Live inbox updates + calendar changes |
@@ -39,7 +39,7 @@
                         │  - API routes / actions    │──── Postgres (Prisma)
   Browser ─────────────►│  - webhook receivers*      │──── S3 (files/media)
                         └────────────┬───────────────┘
-                                     │ enqueue (Redis/BullMQ)
+                                     │ WebhookEvent rows (DB as queue)
                         ┌────────────▼───────────────┐
                         │  apps/worker               │
                         │  - process inbound msgs    │──── Meta Graph API

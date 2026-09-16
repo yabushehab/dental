@@ -1,41 +1,47 @@
-import { Worker } from "bullmq";
 import { prisma } from "@dentalos/db";
-import { processReminderScan } from "./jobs/reminders";
-import { QUEUE_NAMES, createQueues, createRedisConnection } from "./queues";
+import { processWebhookEvents } from "./jobs/process-webhooks";
+import { runReminderScan } from "./jobs/reminders";
+import { runCampaigns } from "./jobs/campaigns";
 
-async function main() {
-  const connection = createRedisConnection();
-  const queues = createQueues(connection);
+/**
+ * DentalOS worker — DB-backed job loops. The database is the queue:
+ * WebhookEvent.processedAt, ReminderLog's unique constraint, and Campaign
+ * status transitions give idempotency, so no broker is needed at clinic
+ * scale. Intervals overlap-guard themselves.
+ */
 
-  // repeatable scan: every 5 minutes
-  await queues.reminders.upsertJobScheduler("reminder-scan", { every: 5 * 60 * 1000 });
+type JobFn = () => Promise<void>;
 
-  const workers = [
-    new Worker(QUEUE_NAMES.reminders, processReminderScan, { connection }),
-    // Phase 4: inbound-messages + campaigns workers register here
-  ];
-
-  for (const w of workers) {
-    w.on("failed", (job, err) => {
-      console.error(`[${w.name}] job ${job?.id} failed:`, err.message);
-    });
-  }
-
-  console.log(`DentalOS worker running — queues: ${Object.values(QUEUE_NAMES).join(", ")}`);
-
-  const shutdown = async (signal: string) => {
-    console.log(`${signal} received, shutting down…`);
-    await Promise.all(workers.map((w) => w.close()));
-    await Promise.all(Object.values(queues).map((q) => q.close()));
-    connection.disconnect();
-    await prisma.$disconnect();
-    process.exit(0);
-  };
-  process.on("SIGINT", () => void shutdown("SIGINT"));
-  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+function loop(name: string, everyMs: number, fn: JobFn): NodeJS.Timeout {
+  let running = false;
+  return setInterval(() => {
+    if (running) return;
+    running = true;
+    fn()
+      .catch((err) => console.error(`[${name}]`, err instanceof Error ? err.message : err))
+      .finally(() => {
+        running = false;
+      });
+  }, everyMs);
 }
 
-main().catch((err) => {
-  console.error("Worker failed to start:", err);
-  process.exit(1);
-});
+const timers = [
+  loop("webhooks", 2_000, processWebhookEvents),
+  loop("reminders", 60_000, runReminderScan),
+  loop("campaigns", 10_000, runCampaigns),
+];
+
+console.log("DentalOS worker running — jobs: webhooks (2s), reminders (60s), campaigns (10s)");
+
+// run once at boot so nothing waits a full interval
+void processWebhookEvents().catch(() => {});
+void runReminderScan().catch(() => {});
+
+const shutdown = async (signal: string) => {
+  console.log(`${signal} received, shutting down…`);
+  for (const t of timers) clearInterval(t);
+  await prisma.$disconnect();
+  process.exit(0);
+};
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

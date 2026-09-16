@@ -30,6 +30,15 @@ export const TENANT_MODELS = new Set<string>([
   "InsuranceCompany",
   "InsurancePolicy",
   "InsuranceClaim",
+  // WebhookEvent is deliberately global — org is resolved during processing
+  "Channel",
+  "Contact",
+  "Conversation",
+  "Message",
+  "MessageTemplate",
+  "Campaign",
+  "ReminderRule",
+  "ReminderLog",
 ]);
 
 /**

@@ -369,6 +369,185 @@ async function main() {
     }
   }
 
+  // --- Phase 4: channels, templates, conversations, reminder rule -----------
+  const waChannel = await prisma.channel.upsert({
+    where: { platform_externalId: { platform: "WHATSAPP", externalId: "demo-wa-100001" } },
+    update: {},
+    create: {
+      organizationId: org.id,
+      platform: "WHATSAPP",
+      externalId: "demo-wa-100001",
+      displayName: "Smile Dental WhatsApp (+973 1700 0000)",
+    },
+  });
+  await prisma.channel.upsert({
+    where: { platform_externalId: { platform: "INSTAGRAM", externalId: "demo-ig-200001" } },
+    update: {},
+    create: {
+      organizationId: org.id,
+      platform: "INSTAGRAM",
+      externalId: "demo-ig-200001",
+      displayName: "@smiledental.bh",
+    },
+  });
+
+  const templateDefs = [
+    {
+      name: "appointment_reminder",
+      body: "Hello {{1}}, this is a reminder of your appointment at {{2}} on {{3}} at {{4}}. Reply CONFIRM to confirm or call us to reschedule.",
+      approvalStatus: "APPROVED" as const,
+    },
+    {
+      name: "recall_checkup",
+      body: "Hello {{1}}, it has been a while since your last visit to {{2}}. Book your checkup and cleaning — reply to this message and we will arrange a time.",
+      approvalStatus: "APPROVED" as const,
+    },
+    {
+      name: "welcome_new_patient",
+      body: "Welcome to {{1}}, {{2}}! Save this number to reach us on WhatsApp any time.",
+      approvalStatus: "PENDING" as const,
+    },
+  ];
+  for (const t of templateDefs) {
+    await prisma.messageTemplate.upsert({
+      where: {
+        organizationId_name_language: { organizationId: org.id, name: t.name, language: "en" },
+      },
+      update: {},
+      create: { organizationId: org.id, ...t },
+    });
+  }
+
+  const reminderTemplate = await prisma.messageTemplate.findFirst({
+    where: { organizationId: org.id, name: "appointment_reminder" },
+  });
+  const hasRule = await prisma.reminderRule.findFirst({ where: { organizationId: org.id } });
+  if (!hasRule) {
+    await prisma.reminderRule.create({
+      data: {
+        organizationId: org.id,
+        offsetHours: 24,
+        templateId: reminderTemplate?.id ?? null,
+        requiresConfirmation: true,
+      },
+    });
+  }
+
+  // demo conversations: Fatima (linked) + one unknown IG prospect
+  const fatima = patients[1];
+  if (fatima?.phone) {
+    const contact = await prisma.contact.upsert({
+      where: {
+        organizationId_platform_externalUserId: {
+          organizationId: org.id,
+          platform: "WHATSAPP",
+          externalUserId: fatima.phone.replace(/\D/g, ""),
+        },
+      },
+      update: {},
+      create: {
+        organizationId: org.id,
+        platform: "WHATSAPP",
+        externalUserId: fatima.phone.replace(/\D/g, ""),
+        displayName: `${fatima.firstName} ${fatima.lastName}`,
+        phone: fatima.phone,
+        patientId: fatima.id,
+      },
+    });
+    const convo = await prisma.conversation.upsert({
+      where: { channelId_contactId: { channelId: waChannel.id, contactId: contact.id } },
+      update: {},
+      create: {
+        organizationId: org.id,
+        channelId: waChannel.id,
+        contactId: contact.id,
+        lastInboundAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        unreadCount: 1,
+      },
+    });
+    const hasMessages = await prisma.message.count({ where: { conversationId: convo.id } });
+    if (hasMessages === 0) {
+      await prisma.message.createMany({
+        data: [
+          {
+            organizationId: org.id,
+            conversationId: convo.id,
+            direction: "IN",
+            type: "TEXT",
+            body: "Hi, how much is teeth whitening?",
+            status: "RECEIVED",
+            at: new Date(Date.now() - 3 * 60 * 60 * 1000),
+          },
+          {
+            organizationId: org.id,
+            conversationId: convo.id,
+            direction: "OUT",
+            type: "TEXT",
+            body: "Hello Fatima! In-office whitening is BHD 120 (incl. VAT). Would you like to book a session?",
+            status: "READ",
+            at: new Date(Date.now() - 2.5 * 60 * 60 * 1000),
+          },
+          {
+            organizationId: org.id,
+            conversationId: convo.id,
+            direction: "IN",
+            type: "TEXT",
+            body: "Yes please, sometime next week?",
+            status: "RECEIVED",
+            at: new Date(Date.now() - 2 * 60 * 60 * 1000),
+          },
+        ],
+      });
+    }
+  }
+
+  const igChannel = await prisma.channel.findFirst({
+    where: { organizationId: org.id, platform: "INSTAGRAM" },
+  });
+  if (igChannel) {
+    const prospect = await prisma.contact.upsert({
+      where: {
+        organizationId_platform_externalUserId: {
+          organizationId: org.id,
+          platform: "INSTAGRAM",
+          externalUserId: "ig-90001",
+        },
+      },
+      update: {},
+      create: {
+        organizationId: org.id,
+        platform: "INSTAGRAM",
+        externalUserId: "ig-90001",
+        displayName: "sara.bh",
+      },
+    });
+    const convo = await prisma.conversation.upsert({
+      where: { channelId_contactId: { channelId: igChannel.id, contactId: prospect.id } },
+      update: {},
+      create: {
+        organizationId: org.id,
+        channelId: igChannel.id,
+        contactId: prospect.id,
+        lastInboundAt: new Date(Date.now() - 30 * 60 * 1000),
+        unreadCount: 1,
+      },
+    });
+    const hasMessages = await prisma.message.count({ where: { conversationId: convo.id } });
+    if (hasMessages === 0) {
+      await prisma.message.create({
+        data: {
+          organizationId: org.id,
+          conversationId: convo.id,
+          direction: "IN",
+          type: "TEXT",
+          body: "Saw your veneers post — do you have availability this month?",
+          status: "RECEIVED",
+          at: new Date(Date.now() - 30 * 60 * 1000),
+        },
+      });
+    }
+  }
+
   console.log("Seeded demo organization:");
   console.log("  owner@demo.test / password123 (OWNER)");
   console.log("  dentist@demo.test / password123 (DENTIST)");

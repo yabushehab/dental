@@ -10,9 +10,8 @@
   },
   "dependencies": {
     "@dentalos/db": "workspace:*",
-    "@dentalos/shared": "workspace:*",
-    "bullmq": "^5.34.0",
-    "ioredis": "^5.4.2"
+    "@dentalos/meta": "workspace:*",
+    "@dentalos/shared": "workspace:*"
   },
   "devDependencies": {
     "@dentalos/config": "workspace:*",

@@ -7,6 +7,9 @@ const SECTIONS = [
   { href: "/settings/appointment-types", title: "Appointment types", desc: "Visit types, durations, colors" },
   { href: "/settings/procedures", title: "Procedure catalog", desc: "Codes, prices, VAT rates" },
   { href: "/settings/insurance", title: "Insurance companies", desc: "Insurers you accept" },
+  { href: "/settings/channels", title: "Messaging channels", desc: "WhatsApp, Instagram, Facebook" },
+  { href: "/settings/templates", title: "Message templates", desc: "WhatsApp-approved templates" },
+  { href: "/settings/reminders", title: "Appointment reminders", desc: "Automated WhatsApp reminders" },
 ];
 
 export default async function SettingsPage() {
